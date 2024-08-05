@@ -12,7 +12,10 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
+
+	"dead_links_scraper/pkg"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/net/html"
@@ -45,7 +48,7 @@ var rootCmd = &cobra.Command{
 func rootRun(parallel bool, start, domain string) {
 	fmt.Printf("Base domain: %s\n", domain)
 
-	if parallel {
+	if !parallel {
 		return
 	}
 
@@ -53,15 +56,19 @@ func rootRun(parallel bool, start, domain string) {
 		fmt.Println("Starting search from: " + start)
 	}
 
-	found, dead := make(map[string]bool), make(map[string]string)
+	found, dead := pkg.NewAtomicSet[string](), make(map[string]string)
 
 	startDomain, err := url.JoinPath(domain, start)
 	if err != nil {
 		cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
 	}
-	if err := recursiveScrape(startDomain, found, dead, domain); err != nil {
-		cobra.CheckErr(fmt.Errorf("recursiveScrape: %w", err))
-	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		recursiveScrape(&wg, startDomain, found, dead, domain)
+	}()
+	wg.Wait()
 
 	writer := tabwriter.NewWriter(
 		os.Stdout, 0, 2, 4, ' ', 0,
@@ -78,7 +85,15 @@ func rootRun(parallel bool, start, domain string) {
 	writer.Flush()
 }
 
-func recursiveScrape(domain string, found map[string]bool, dead map[string]string, baseDomain string) error {
+func recursiveScrape(
+	wg *sync.WaitGroup,
+	domain string,
+	found *pkg.AtomicSet[string],
+	dead map[string]string,
+	baseDomain string,
+) error {
+	defer wg.Done()
+
 	if strings.HasPrefix(domain, "/") {
 		var err error
 		domain, err = url.JoinPath(baseDomain, domain)
@@ -86,14 +101,13 @@ func recursiveScrape(domain string, found map[string]bool, dead map[string]strin
 			fmt.Println(err)
 		}
 	}
-	fmt.Println("\nScraping ", domain)
+	fmt.Println("\nScraping", domain)
 
 	// save as checked page
-	if found[domain] {
+	if !found.Insert(domain) {
 		fmt.Println("Visited, returning")
 		return nil
 	}
-	found[domain] = true
 
 	// fetch the page
 	fmt.Printf("Fetching %v\n", domain)
@@ -111,11 +125,10 @@ func recursiveScrape(domain string, found map[string]bool, dead map[string]strin
 
 	if resp.Request.URL.String() != domain {
 		fmt.Printf("Redirected to %v, adding it to found\n", resp.Request.URL)
-		if found[resp.Request.URL.String()] {
+		if !found.Insert(resp.Request.URL.String()) {
 			fmt.Println("Visited, returning")
 			return nil
 		}
-		found[resp.Request.URL.String()] = true
 	}
 
 	// do not continue check if its in a different domain
@@ -156,9 +169,13 @@ Loop:
 	}
 
 	for _, link := range links {
-		if err := recursiveScrape(link, found, dead, baseDomain); err != nil {
-			dead[link] = domain
-		}
+		wg.Add(1)
+		go func() {
+			if err := recursiveScrape(wg, link, found, dead, baseDomain); err != nil {
+				// this map not being locked should not be an issue, it is write only until the last part, plus we don't revisit visited domains
+				dead[link] = domain
+			}
+		}()
 	}
 
 	return nil
