@@ -4,6 +4,7 @@ Copyright © 2024 DanWlker danielhee2@gmail.com
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -16,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/net/html"
 )
+
+var domainNotFoundError = errors.New("Domain not found")
 
 var rootCmd = &cobra.Command{
 	Use:   "dead_links_scraper",
@@ -30,28 +33,41 @@ var rootCmd = &cobra.Command{
 			cobra.CheckErr(fmt.Errorf("Please provide the url domain"))
 		}
 
-		rootRun(parallelFlag, args[0])
+		startFlag, err := cmd.Flags().GetString("start")
+		if err != nil {
+			cobra.CheckErr(fmt.Errorf("cmd.Flags().GetBool: %w", err))
+		}
+
+		rootRun(parallelFlag, startFlag, args[0])
 	},
 }
 
-func rootRun(parallel bool, domain string) {
+func rootRun(parallel bool, start, domain string) {
 	fmt.Printf("Base domain: %s\n", domain)
 
 	if parallel {
 		return
 	}
 
-	found, dead := make(map[string]bool), make(map[string]bool)
+	if start != "" {
+		fmt.Println("Starting search from: " + start)
+	}
 
-	recursiveScrape(domain, found, dead, domain)
+	found, dead := make(map[string]bool), make(map[string]string)
+
+	startDomain, err := url.JoinPath(domain, start)
+	if err != nil {
+		cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
+	}
+	recursiveScrape(startDomain, found, dead, domain)
 
 	writer := tabwriter.NewWriter(
 		os.Stdout, 0, 2, 4, ' ', 0,
 	)
 
 	_, _ = writer.Write([]byte("\nPage\tLink\n"))
-	for link := range dead {
-		page, link := path.Split(link)
+	for fullLink, page := range dead {
+		_, link := path.Split(fullLink)
 		_, _ = writer.Write(
 			[]byte(page + "\t" + link + "\n"),
 		)
@@ -60,7 +76,7 @@ func rootRun(parallel bool, domain string) {
 	writer.Flush()
 }
 
-func recursiveScrape(domain string, found, dead map[string]bool, baseDomain string) {
+func recursiveScrape(domain string, found map[string]bool, dead map[string]string, baseDomain string) error {
 	if strings.HasPrefix(domain, "/") {
 		var err error
 		domain, err = url.JoinPath(baseDomain, domain)
@@ -68,10 +84,12 @@ func recursiveScrape(domain string, found, dead map[string]bool, baseDomain stri
 			fmt.Println(err)
 		}
 	}
+	fmt.Println("\nScraping ", domain)
 
 	// save as checked page
 	if found[domain] {
-		return
+		fmt.Println("Visited, returning")
+		return nil
 	}
 	found[domain] = true
 
@@ -81,17 +99,26 @@ func recursiveScrape(domain string, found, dead map[string]bool, baseDomain stri
 	// check if fails, save it and return
 	if err != nil {
 		fmt.Println(err)
-		dead[domain] = true
+		return domainNotFoundError
 	}
 
 	if resp.StatusCode != 200 {
 		fmt.Println("Call is successful but server returned " + strconv.Itoa(resp.StatusCode))
-		dead[domain] = true
+		return domainNotFoundError
+	}
+
+	if resp.Request.URL.String() != domain {
+		fmt.Printf("Redirected to %v, adding it to found\n", resp.Request.URL)
+		if found[resp.Request.URL.String()] {
+			fmt.Println("Visited, returning")
+			return nil
+		}
+		found[resp.Request.URL.String()] = true
 	}
 
 	// do not continue check if its in a different domain
 	if !strings.HasPrefix(domain, baseDomain) {
-		return
+		return nil
 	}
 
 	// if succeeded, serialize the html, and grab all the links
@@ -121,8 +148,12 @@ Loop:
 	}
 
 	for _, link := range links {
-		recursiveScrape(link, found, dead, baseDomain)
+		if err := recursiveScrape(link, found, dead, baseDomain); err != nil {
+			dead[link] = domain
+		}
 	}
+
+	return nil
 }
 
 func Execute() {
@@ -134,4 +165,5 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().BoolP("parallel", "p", false, "Run scraper concurrently")
+	rootCmd.Flags().StringP("start", "s", "", "Defines which relative path from the base domain to start searching from. Ex: /believe")
 }
