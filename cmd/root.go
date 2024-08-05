@@ -18,7 +18,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-var domainNotFoundError = errors.New("Domain not found")
+var domainDeadError = errors.New("Domain dead error, domain accessed is dead")
 
 var rootCmd = &cobra.Command{
 	Use:   "dead_links_scraper",
@@ -101,12 +101,12 @@ func recursiveScrape(domain string, found map[string]bool, dead map[string]strin
 	// check if fails, save it and return
 	if err != nil {
 		fmt.Println(err)
-		return domainNotFoundError
+		return domainDeadError
 	}
 
 	if resp.StatusCode != 200 {
 		fmt.Println("Call is successful but server returned " + strconv.Itoa(resp.StatusCode))
-		return domainNotFoundError
+		return domainDeadError
 	}
 
 	if resp.Request.URL.String() != domain {
