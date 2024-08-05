@@ -59,7 +59,9 @@ func rootRun(parallel bool, start, domain string) {
 	if err != nil {
 		cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
 	}
-	recursiveScrape(startDomain, found, dead, domain)
+	if err := recursiveScrape(startDomain, found, dead, domain); err != nil {
+		cobra.CheckErr(fmt.Errorf("recursiveScrape: %w", err))
+	}
 
 	writer := tabwriter.NewWriter(
 		os.Stdout, 0, 2, 4, ' ', 0,
