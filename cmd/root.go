@@ -135,15 +135,21 @@ Loop:
 			break Loop
 		case html.StartTagToken, html.EndTagToken:
 			tn, hasAttr := z.TagName()
-			if len(tn) == 1 && tn[0] == 'a' && hasAttr {
-				for ok := true; ok; {
-					key, val, hasAttr := z.TagAttr()
-					ok = hasAttr
-					if string(key) == "href" {
-						links = append(links, string(val))
-						break
-					}
+
+			if len(tn) != 1 || tn[0] != 'a' || !hasAttr {
+				continue Loop
+			}
+
+			for ok := true; ok; {
+				key, val, hasAttr := z.TagAttr()
+				ok = hasAttr
+
+				if string(key) != "href" {
+					continue
 				}
+
+				links = append(links, string(val))
+				break
 			}
 		}
 
