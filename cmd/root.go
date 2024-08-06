@@ -56,7 +56,7 @@ func rootRun(parallel bool, start, domain string) {
 		fmt.Println("Starting search from: " + start)
 	}
 
-	found, dead := pkg.NewAtomicSet[string](), make(map[string]string)
+	found, dead := pkg.NewAtomicSet[string](), pkg.NewAtomicMap[string, string]()
 
 	startDomain, err := url.JoinPath(domain, start)
 	if err != nil {
@@ -64,35 +64,43 @@ func rootRun(parallel bool, start, domain string) {
 	}
 
 	var wg sync.WaitGroup
+	// fmt.Println("waiting parent")
 	wg.Add(1)
 	go func() {
-		recursiveScrape(&wg, startDomain, found, dead, domain)
+		recursiveScrape(&wg, startDomain, found, dead, domain, 0)
 	}()
 	wg.Wait()
+	// fmt.Println("waiting released")
 
 	writer := tabwriter.NewWriter(
 		os.Stdout, 0, 2, 4, ' ', 0,
 	)
 
 	_, _ = writer.Write([]byte("\nPage\tLink\n"))
-	for fullLink, page := range dead {
-		_, link := path.Split(fullLink)
-		_, _ = writer.Write(
-			[]byte(page + "\t" + link + "\n"),
-		)
-	}
+	dead.Range(
+		func(fullLink, page string) {
+			_, link := path.Split(fullLink)
+			_, _ = writer.Write(
+				[]byte(page + "\t" + link + "\n"),
+			)
+		},
+	)
 
 	writer.Flush()
 }
 
 func recursiveScrape(
-	wg *sync.WaitGroup,
+	parentWg *sync.WaitGroup,
 	domain string,
 	found *pkg.AtomicSet[string],
-	dead map[string]string,
+	dead *pkg.AtomicMap[string, string],
 	baseDomain string,
+	depth int,
 ) error {
-	defer wg.Done()
+	defer func() {
+		// fmt.Println(strings.Repeat(" ", depth+1), "waiting done "+strconv.Itoa(depth))
+		parentWg.Done()
+	}()
 
 	if strings.HasPrefix(domain, "/") {
 		var err error
@@ -168,15 +176,19 @@ Loop:
 
 	}
 
+	var wg sync.WaitGroup
 	for _, link := range links {
+		// fmt.Println(strings.Repeat(" ", depth+1), "waiting")
 		wg.Add(1)
 		go func() {
-			if err := recursiveScrape(wg, link, found, dead, baseDomain); err != nil {
-				// this map not being locked should not be an issue, it is write only until the last part, plus we don't revisit visited domains
-				dead[link] = domain
+			if err := recursiveScrape(&wg, link, found, dead, baseDomain, depth+1); err != nil {
+				dead.Set(link, domain)
 			}
 		}()
 	}
+
+	wg.Wait()
+	// fmt.Println(strings.Repeat(" ", depth+1), "waiting released")
 
 	return nil
 }

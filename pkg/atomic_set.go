@@ -9,9 +9,10 @@ type AtomicSet[T comparable] struct {
 
 func (a *AtomicSet[T]) Insert(val T) bool {
 	a.Lock()
+	defer a.Unlock()
+
 	_, ok := a.data[val]
 	a.data[val] = struct{}{}
-	a.Unlock()
 	return !ok // will return false if already inside
 }
 
