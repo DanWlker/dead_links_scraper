@@ -32,6 +32,10 @@ func (a *AtomicMap[T, U]) Range(rangeFunc func(T, U)) {
 	// fmt.Println("Ranging done")
 }
 
+func (a *AtomicMap[T, U]) ToMap() map[T]U {
+	return a.data // TODO: Convert to deep copy
+}
+
 func NewAtomicMap[T comparable, U any]() *AtomicMap[T, U] {
 	return &AtomicMap[T, U]{
 		data: make(map[T]U),

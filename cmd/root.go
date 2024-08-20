@@ -56,36 +56,50 @@ func rootRun(parallel bool, start, domain string) {
 	var dead map[string]string
 
 	if parallel {
-		return
-		// var wg sync.WaitGroup
-		// wg.Add(1)
-		// scrape(
-		// 	start,
-		// 	func(s string) bool {
-		// 		return true
-		// 	},
-		// 	func(s string) {},
-		// 	domain,
-		// 	func() { wg.Done() },
-		// 	func(s []string) {},
-		// )
-		// wg.Wait()
+		found, deadTemp := pkg.NewAtomicSet[string](), pkg.NewAtomicMap[string, string]()
 
-		// found, dead := pkg.NewAtomicSet[string](), pkg.NewAtomicMap[string, string]()
-		//
-		// startDomain, err := url.JoinPath(domain, start)
-		// if err != nil {
-		// 	cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
-		// }
-		//
-		// var wg sync.WaitGroup
-		// // fmt.Println("waiting parent")
-		// wg.Add(1)
-		// go func() {
-		// 	recursiveScrape(&wg, startDomain, found, dead, domain, 0)
-		// }()
-		// wg.Wait()
-		// // fmt.Println("waiting released")
+		checkSetFound := func(s string) bool {
+			insertSuccess := found.Insert(s)
+			return !insertSuccess
+		}
+
+		var onScrapedPage func(s []string)
+		onScrapedPage = func(s []string) {
+			var wg sync.WaitGroup
+			for _, link := range s {
+				wg.Add(1)
+				go func() {
+					if err := scrape(
+						link,
+						checkSetFound,
+						domain,
+						wg.Done,
+						onScrapedPage,
+					); err != nil {
+						deadTemp.Set(link, domain)
+					}
+				}()
+			}
+
+			wg.Wait()
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			if err := scrape(
+				start,
+				checkSetFound,
+				domain,
+				wg.Done,
+				onScrapedPage,
+			); err != nil {
+				cobra.CheckErr(fmt.Errorf("parallel scrape: %w", err))
+			}
+		}()
+		wg.Wait()
+
+		dead = deadTemp.ToMap()
 	} else {
 		found := make(map[string]bool)
 		dead = make(map[string]string)
@@ -118,7 +132,7 @@ func rootRun(parallel bool, start, domain string) {
 			func() {},
 			onScrapedPage,
 		); err != nil {
-			cobra.CheckErr(fmt.Errorf("recursiveScrape: %w", err))
+			cobra.CheckErr(fmt.Errorf("sequential scrape: %w", err))
 		}
 	}
 
@@ -221,41 +235,6 @@ Loop:
 	onScrapedPage(links)
 	return nil
 }
-
-// func recursiveScrape(
-// 	parentWg *sync.WaitGroup,
-// 	domain string,
-// 	found *pkg.AtomicSet[string],
-// 	dead *pkg.AtomicMap[string, string],
-// 	baseDomain string,
-// 	depth int,
-// ) error {
-// 	defer func() {
-// 		// fmt.Println(strings.Repeat(" ", depth+1), "waiting done "+strconv.Itoa(depth))
-// 		parentWg.Done()
-// 	}()
-//
-// 	// save as checked page
-// 	if !found.Insert(domain) {
-// 	}
-//
-// 	if !found.Insert(resp.Request.URL.String()) {
-// 	}
-//
-// 	var wg sync.WaitGroup
-// 	for _, link := range links {
-// 		// fmt.Println(strings.Repeat(" ", depth+1), "waiting")
-// 		wg.Add(1)
-// 		go func() {
-// 			if err := recursiveScrape(&wg, link, found, dead, baseDomain, depth+1); err != nil {
-// 				dead.Set(link, domain)
-// 			}
-// 		}()
-// 	}
-//
-// 	wg.Wait()
-// 	// fmt.Println(strings.Repeat(" ", depth+1), "waiting released")
-// }
 
 func Execute() {
 	err := rootCmd.Execute()
