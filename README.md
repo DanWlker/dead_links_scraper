@@ -1,4 +1,4 @@
-Web Scraper for dead links in a website. Refer [parallel](https://github.com/DanWlker/dead_links_scraper/tree/parallel) for concurrent version
+Web Scraper for dead links in a website that supports both parallel and sequential execution
 
 ## To Build:
 
@@ -18,7 +18,9 @@ To start from a relative path, specify `-s`
 ./dead_links_scraper -s /relative_path https://<your_link>
 ```
 
-## Caveats:
+To execute in parallel, specify `-p`
 
-`-p` doesn't work currently, an example implementation is in the parallel branch
+```sh
+./dead_links_scraper -p https://<your_link>
+```
 

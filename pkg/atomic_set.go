@@ -13,7 +13,7 @@ func (a *AtomicSet[T]) Insert(val T) bool {
 
 	_, ok := a.data[val]
 	a.data[val] = struct{}{}
-	return !ok // will return false if already inside
+	return !ok // will return false if already inside, which means insert failed
 }
 
 func NewAtomicSet[T comparable]() *AtomicSet[T] {
