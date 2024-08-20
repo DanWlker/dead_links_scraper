@@ -1,12 +1,12 @@
-Web Scraper for dead links in a website that supports both parallel and sequential execution
+A recursive web scraper for dead links in a website, supports both parallel and sequential execution.
 
-## To Build:
+## To Build
 
 ```go
 go build .
 ```
 
-## Usage:
+## Usage
 
 ```sh
 ./dead_links_scraper https://<your_link>
@@ -24,3 +24,6 @@ To execute in parallel, specify `-p`
 ./dead_links_scraper -p https://<your_link>
 ```
 
+## Caveats
+
+This dead links scraper only scrapes links inside a html `<a>` tag
