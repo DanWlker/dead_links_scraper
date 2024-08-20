@@ -12,7 +12,10 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
+
+	"dead_links_scraper/pkg"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/net/html"
@@ -67,6 +70,22 @@ func rootRun(parallel bool, start, domain string) {
 		// 	func(s []string) {},
 		// )
 		// wg.Wait()
+
+		// found, dead := pkg.NewAtomicSet[string](), pkg.NewAtomicMap[string, string]()
+		//
+		// startDomain, err := url.JoinPath(domain, start)
+		// if err != nil {
+		// 	cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
+		// }
+		//
+		// var wg sync.WaitGroup
+		// // fmt.Println("waiting parent")
+		// wg.Add(1)
+		// go func() {
+		// 	recursiveScrape(&wg, startDomain, found, dead, domain, 0)
+		// }()
+		// wg.Wait()
+		// // fmt.Println("waiting released")
 	} else {
 		found := make(map[string]bool)
 		dead = make(map[string]string)
@@ -202,6 +221,41 @@ Loop:
 	onScrapedPage(links)
 	return nil
 }
+
+// func recursiveScrape(
+// 	parentWg *sync.WaitGroup,
+// 	domain string,
+// 	found *pkg.AtomicSet[string],
+// 	dead *pkg.AtomicMap[string, string],
+// 	baseDomain string,
+// 	depth int,
+// ) error {
+// 	defer func() {
+// 		// fmt.Println(strings.Repeat(" ", depth+1), "waiting done "+strconv.Itoa(depth))
+// 		parentWg.Done()
+// 	}()
+//
+// 	// save as checked page
+// 	if !found.Insert(domain) {
+// 	}
+//
+// 	if !found.Insert(resp.Request.URL.String()) {
+// 	}
+//
+// 	var wg sync.WaitGroup
+// 	for _, link := range links {
+// 		// fmt.Println(strings.Repeat(" ", depth+1), "waiting")
+// 		wg.Add(1)
+// 		go func() {
+// 			if err := recursiveScrape(&wg, link, found, dead, baseDomain, depth+1); err != nil {
+// 				dead.Set(link, domain)
+// 			}
+// 		}()
+// 	}
+//
+// 	wg.Wait()
+// 	// fmt.Println(strings.Repeat(" ", depth+1), "waiting released")
+// }
 
 func Execute() {
 	err := rootCmd.Execute()
