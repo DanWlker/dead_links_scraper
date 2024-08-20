@@ -45,22 +45,62 @@ var rootCmd = &cobra.Command{
 func rootRun(parallel bool, start, domain string) {
 	fmt.Printf("Base domain: %s\n", domain)
 
-	if parallel {
-		return
-	}
-
-	if start != "" {
-		fmt.Println("Starting search from: " + start)
-	}
-
-	found, dead := make(map[string]bool), make(map[string]string)
-
-	startDomain, err := url.JoinPath(domain, start)
+	start, err := url.JoinPath(domain, start)
 	if err != nil {
 		cobra.CheckErr(fmt.Errorf("url.JoinPath: %w", err))
 	}
-	if err := recursiveScrape(startDomain, found, dead, domain); err != nil {
-		cobra.CheckErr(fmt.Errorf("recursiveScrape: %w", err))
+	fmt.Println("Starting search from: " + start)
+	var dead map[string]string
+
+	if parallel {
+		return
+		// var wg sync.WaitGroup
+		// wg.Add(1)
+		// scrape(
+		// 	start,
+		// 	func(s string) bool {
+		// 		return true
+		// 	},
+		// 	func(s string) {},
+		// 	domain,
+		// 	func() { wg.Done() },
+		// 	func(s []string) {},
+		// )
+		// wg.Wait()
+	} else {
+		found := make(map[string]bool)
+		dead = make(map[string]string)
+
+		checkSetFound := func(s string) bool {
+			res := found[s]
+			found[s] = true
+			return res
+		}
+
+		var onScrapedPage func([]string)
+		onScrapedPage = func(s []string) {
+			for _, link := range s {
+				if err := scrape(
+					link,
+					checkSetFound,
+					domain,
+					func() {},
+					onScrapedPage,
+				); err != nil {
+					dead[link] = domain
+				}
+			}
+		}
+
+		if err := scrape(
+			start,
+			checkSetFound,
+			domain,
+			func() {},
+			onScrapedPage,
+		); err != nil {
+			cobra.CheckErr(fmt.Errorf("recursiveScrape: %w", err))
+		}
 	}
 
 	writer := tabwriter.NewWriter(
@@ -78,7 +118,15 @@ func rootRun(parallel bool, start, domain string) {
 	writer.Flush()
 }
 
-func recursiveScrape(domain string, found map[string]bool, dead map[string]string, baseDomain string) error {
+func scrape(
+	domain string,
+	checkSetFound func(string) bool,
+	baseDomain string,
+	cleanup func(),
+	onScrapedPage func([]string),
+) error {
+	defer cleanup()
+
 	if strings.HasPrefix(domain, "/") {
 		var err error
 		domain, err = url.JoinPath(baseDomain, domain)
@@ -88,14 +136,11 @@ func recursiveScrape(domain string, found map[string]bool, dead map[string]strin
 	}
 	fmt.Println("\nScraping ", domain)
 
-	// save as checked page
-	if found[domain] {
+	if checkSetFound(domain) {
 		fmt.Println("Visited, returning")
 		return nil
 	}
-	found[domain] = true
 
-	// fetch the page
 	fmt.Printf("Fetching %v\n", domain)
 	resp, err := http.Get(domain)
 	// check if fails, save it and return
@@ -111,11 +156,10 @@ func recursiveScrape(domain string, found map[string]bool, dead map[string]strin
 
 	if resp.Request.URL.String() != domain {
 		fmt.Printf("Redirected to %v, adding it to found\n", resp.Request.URL)
-		if found[resp.Request.URL.String()] {
+		if checkSetFound(resp.Request.URL.String()) {
 			fmt.Println("Visited, returning")
 			return nil
 		}
-		found[resp.Request.URL.String()] = true
 	}
 
 	// do not continue check if its in a different domain
@@ -155,12 +199,7 @@ Loop:
 
 	}
 
-	for _, link := range links {
-		if err := recursiveScrape(link, found, dead, baseDomain); err != nil {
-			dead[link] = domain
-		}
-	}
-
+	onScrapedPage(links)
 	return nil
 }
 
